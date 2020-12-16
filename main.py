@@ -1,113 +1,128 @@
+#!/usr/bin/env python3
+
 import png, array,argparse
 import sys
 
-def encode_message(data, pixels):
+def encode(data, pixels, pix_length):
+    '''
+    (string, list of int, int) -> void
+    hide text in array of pixels by modifying their value
+    '''
+
     index = 0
+    pix_char_size = 3 if pix_length == 3 else 2
     for char in data:
-        pixels_to_change = pixels[index * 4 : (index + 2) * 4]
+        pixels_to_change = pixels[index * pix_length : (index + pix_char_size) * pix_length]
         bytechar = f'{ord(char):08b}'
         for i, bit in enumerate(bytechar):
             pixels_to_change[i] = change_value(bit, pixels_to_change[i])
-        pixels[index * 4 : (index + 2) * 4] = pixels_to_change
-        index = index + 2
+        pixels[index * pix_length : (index + pix_char_size) * pix_length] = pixels_to_change
+        index = index + pix_char_size
 
 
 def change_value(bit, pix_value):
+    ''' (char, int) -> int
+    Change the value of a pixel depending on the value of a given bit
+    '''
+
     if bit == '0':
         if pix_value % 2 != 0:
-            if pix_value == 255:
-                return pix_value - 1
-            else:
-                return pix_value + 1
+            return pix_value-1
         else:
             return pix_value
     elif bit == '1':
         if pix_value % 2 == 0:
-            if pix_value == 0:
-                return pix_value + 1
-            else:
-                return pix_value - 1
+            return pix_value + 1
         else:
             return pix_value
 
-def decode(pixels):
-    decoded_message = ""
-    while ("^C" not in decoded_message):
-        encoded_char = pixels[len(decoded_message) * 8 : (len(decoded_message) + 1) * 8]
-        decoded_message = decoded_message + decode_char(encoded_char)
-    return decoded_message[:-2].replace("\\n",'\n')
+def decode(pixels, pixel_length):
+    '''
+    (list of int, int) -> string
+    Decypher message hidden in an image
+    '''
 
-def decode_char(pix_list):
+    decoded_message = ""
+    char_size = 2 if pixel_length == 4 else 3
+    while (chr(3) not in decoded_message):
+        encoded_char = pixels[len(decoded_message) * (char_size * pixel_length) : (len(decoded_message) + 1) * (char_size * pixel_length)]
+        decoded_message = decoded_message + decode_char(encoded_char, pixel_length)
+    return decoded_message[:-1].replace("\\n",'\n')
+
+def decode_char(pix_list, pixel_length):
+    '''
+    (list of int, int) -> char
+    Decypher a single character hidden in subpart of an image
+    '''
+
     decoded_char = ""
     for pix in pix_list:
         if pix % 2 == 0:
             decoded_char = decoded_char + '0'
         else:
             decoded_char = decoded_char + '1'
-    return chr(int(decoded_char, 2))
+    if pixel_length == 4:
+        return chr(int(decoded_char, 2))
+    else:
+        return chr(int(decoded_char[:-1], 2))
 
-def encode_message_from_file(image, file):
-    f = open(file, 'r')
-    text = f.read()
-    reader = png.Reader(filename = image)
-    w, h, pixels, metadata = reader.read_flat()
+
+def encode_message(image, text):
+    '''
+    (string, string) -> void
+    Hides text in image
+    '''
+    try:
+        reader = png.Reader(filename = image)
+        w, h, pixels, metadata = reader.read_flat()
+    except FileNotFoundError:
+        print("Image not found!")
+        sys.exit()
+    except png.FormatError:
+        print("Image is not a PNG file or has invalid signature!")
+        sys.exit()
+
     if metadata['alpha']:
-        if len(text) >= int((w * h) / 4):
+        if len(text) >= int((w * h) / 2):
             print("The specified text is too long to be encoded!")
             sys.exit()
+        pixel_size = 4
+        
     else:
         if len(text) >= int((w * h) / 3):
             print("The specified text is too long to be encoded!")
             sys.exit()
-    text = text + '^C'
-    encode_message(text, pixels)
-    output = open(image, 'wb')
-    writer = png.Writer(w, h, **metadata)
-    writer.write_array(output, pixels)
-    output.close()
-
-def encode_message_from_input(image):
-    text = input("Enter text you want to encode in image: \n")
-    reader = png.Reader(filename = image)
-    w, h, pixels, metadata = reader.read_flat()
-    if metadata['alpha']:
-        if len(text) >= int((w * h) / 4):
-            print("The specified text is too long to be encoded!")
-            sys.exit()
-    else:
-        if len(text) >= int((w * h) / 3):
-            print("The specified text is too long to be encoded!")
-            sys.exit()
-    text = text + '^C'
-    encode_message(text, pixels)
-    output = open(image, 'wb')
-    writer = png.Writer(w, h, **metadata)
-    writer.write_array(output, pixels)
-    output.close()
-
-
-def encode_message_from_text(image, text):
-    reader = png.Reader(filename = image)
-    w, h, pixels, metadata = reader.read_flat()
-    if metadata['alpha']:
-        if len(text) >= int((w * h) / 4):
-            print("The specified text is too long to be encoded!")
-            sys.exit()
-    else:
-        if len(text) >= int((w * h) / 3):
-            print("The specified text is too long to be encoded!")
-            sys.exit()
-    text = text + '^C'
-    encode_message(text, pixels)
+        pixel_size = 3
+        metadata.pop('physical',None)
+        
+    text = text + chr(3)
+    encode(text, pixels, pixel_size)
     output = open(image, 'wb')
     writer = png.Writer(w, h, **metadata)
     writer.write_array(output, pixels)
     output.close()
         
 def decode_message(image):
-    reader = png.Reader(filename = image)
-    w, h, pixels, metadata = reader.read_flat()
-    print(decode(pixels))
+    '''
+    (string) -> void
+    prints text found in an image
+    '''
+
+    try:
+        reader = png.Reader(filename = image)
+        w, h, pixels, metadata = reader.read_flat()
+    except FileNotFoundError:
+        print("Image not found!")
+        sys.exit()
+    except png.FormatError:
+        print("Image is not a PNG file or has invalid signature!")
+        sys.exit()
+
+    if metadata['alpha']:
+        pixel_length = 4
+    else:
+        pixel_length = 3
+    print(decode(pixels,pixel_length))
 
 parser = argparse.ArgumentParser()
 group = parser.add_mutually_exclusive_group()
@@ -120,11 +135,13 @@ args = parser.parse_args()
 
 if args.w:
     if args.f:
-        encode_message_from_file(args.image,args.f)
+        f = open(args.f, 'r')
+        text = f.read()
     elif args.t:
-        encode_message_from_text(args.image,args.t)
+        text = args.t
     else:
-        encode_message_from_input(args.image)
+        text = input("Enter text you want to encode in image: \n")
+    encode_message(args.image, text)
 else: 
     decode_message(args.image)
 
